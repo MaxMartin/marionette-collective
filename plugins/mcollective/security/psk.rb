@@ -5,8 +5,8 @@ module MCollective
         # You should configure a psk in the configuration file and all requests
         # will be validated for authenticity with this.
         #
-        # Serialization uses Marshal, this is the default security module that is
-        # supported out of the box.
+        # Serialization uses either YAML or Marshal, can be configured
+        # by setting plugin.psk.serializer = yaml
         #
         # Validation is as default and is provided by MCollective::Security::Base
         #
@@ -19,10 +19,10 @@ module MCollective
             # Decodes a message by unserializing all the bits etc, it also validates
             # it as valid using the psk etc
             def decodemsg(msg)
-                body = Marshal.load(msg.payload)
+                body = deserialize(msg.payload)
 
                 if validrequest?(body)
-                    body[:body] = Marshal.load(body[:body])
+                    body[:body] = deserialize(body[:body])
                     return body
                 else
                     nil
@@ -31,24 +31,52 @@ module MCollective
 
             # Encodes a reply
             def encodereply(sender, target, msg, requestid, requestcallerid=nil)
-                serialized  = Marshal.dump(msg)
+                serialized  = serialize(msg)
                 digest = makehash(serialized)
 
                 req = create_reply(requestid, sender, target, serialized)
                 req[:hash] = digest
 
-                Marshal.dump(req)
+                serialize(req)
             end
 
             # Encodes a request msg
             def encoderequest(sender, target, msg, requestid, filter={}, target_agent=nil, target_collective=nil)
-                serialized = Marshal.dump(msg)
+                serialized = serialize(msg)
                 digest = makehash(serialized)
 
                 req = create_request(requestid, target, filter, serialized, @initiated_by, target_agent, target_collective)
                 req[:hash] = digest
 
-                Marshal.dump(req)
+                serialize(req)
+            end
+
+            # Serializes a message using the configured encoder
+            def serialize(msg)
+                serializer = @config.pluginconf["psk.serializer"] || "marshal"
+
+                Log.debug("Serializing using #{serializer}")
+
+                case serializer
+                    when "yaml"
+                        return YAML.dump(msg)
+                    else
+                        return Marshal.dump(msg)
+                end
+            end
+
+            # De-Serializes a message using the configured encoder
+            def deserialize(msg)
+                serializer = @config.pluginconf["psk.serializer"] || "marshal"
+
+                Log.debug("De-Serializing using #{serializer}")
+
+                case serializer
+                    when "yaml"
+                        return YAML.load(msg)
+                    else
+                        return Marshal.load(msg)
+                end
             end
 
             # Checks the md5 hash in the request body against our psk, the request sent for validation
